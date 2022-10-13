@@ -14,7 +14,7 @@ echo "" > "${report_file}"
 
 on_exit() {
   echo "Exiting..."
-  
+
   source "${current_folder}/after.sh"
 
   if [ "${ACME_DEBUG}" = "true" ]; then
@@ -89,7 +89,7 @@ k8s_api_call() {
     CONTENT_TYPE="application/strategic-merge-patch+json"
   fi
   curl -i -X "${METHOD}" --cacert "${CA_FILE}" -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' -H "Content-Type: ${CONTENT_TYPE}" https://${APISERVER}${URI} ${ARGS} -o ${RES_FILE}
-  
+
   cat ${RES_FILE} > /dev/stderr
   local STATUS_CODE=$(cat ${RES_FILE} | grep 'HTTP/' | awk '{printf $2}')
   add_to_report "$(cat "${RES_FILE}")"
@@ -127,7 +127,7 @@ get_domain_folder() {
 
   local DOMAIN_FOLDER
   DOMAIN_FOLDER="/acme.sh/$(echo "${DOMAIN_NAME}")"
-  
+
   if [ "${IS_ECC_CERTIFICATE}" = "true" ]; then
     DOMAIN_FOLDER="${DOMAIN_FOLDER}_ecc"
   fi
@@ -171,18 +171,20 @@ starter() {
     acme.sh --set-default-ca --server letsencrypt
   fi
 
-  local URI="/apis/extensions/v1beta1"
+  local URI="/apis/networking.k8s.io/v1"
   if [ -n "${K8S_API_URI_NAMESPACE}" ]; then
     URI="${URI}/${K8S_API_URI_NAMESPACE}"
   fi
   URI="${URI}/ingresses"
 
+  info "Loading ingresses..."
   local RES_FILE=$(mktemp /tmp/init_env.XXXX)
   local STATUS_CODE=$(k8s_api_call "GET" "${URI}" 2>${RES_FILE})
 
   if [ "${STATUS_CODE}" = "200" ]; then
+    info "Ingresses loaded"
     format_res_file "${RES_FILE}"
-    
+
     local INGRESSES_FILTERED=$(cat "${RES_FILE}" | jq -c '.items | .[] | select(.metadata.annotations."acme.kubernetes.io/enable"=="true")')
     add_to_report "$(cat "${RES_FILE}")"
     rm -f "${RES_FILE}"
@@ -316,7 +318,7 @@ generate_cert() {
   if [ "${ACME_DEBUG}" = "true" ]; then
     ACME_ARGS="${ACME_ARGS} --debug"
   fi
-  
+
   if [ "${CERTS_ARGS}" != "" ]; then
     ACME_ARGS="${ACME_ARGS} ${CERTS_ARGS}"
   fi
@@ -324,7 +326,7 @@ generate_cert() {
   if [ "${CERTS_IS_STAGING}" = "true" ]; then
     ACME_ARGS="${ACME_ARGS} --staging"
   fi
-  
+
   if [ "${CERTS_DNS}" != "" ]; then
     ACME_ARGS="${ACME_ARGS} --dns '${CERTS_DNS}'"
   fi
@@ -443,6 +445,7 @@ add_certs_to_secret() {
   SECRET_JSON=$(echo '{}')
   SECRET_JSON=$(echo ${SECRET_JSON} | jq --arg kind "Secret" '. + {kind: $kind}')
   SECRET_JSON=$(echo ${SECRET_JSON} | jq --arg name "${CERTS_SECRET_NAME}" '. + {metadata: { name: $name }}')
+  SECRET_JSON=$(echo ${SECRET_JSON} | jq '.metadata.annotations += {"kubed.appscode.com/sync": ""}')
   SECRET_JSON=$(echo ${SECRET_JSON} | jq '. + {data: {}}')
   SECRET_JSON=$(echo ${SECRET_JSON} | jq --arg cacert "$(get_file_data_for_secret_json "${ACME_CA_FILE}")" '. * {data: {"ca.crt": $cacert}}')
   SECRET_JSON=$(echo ${SECRET_JSON} | jq --arg tlscert "$(get_file_data_for_secret_json "${ACME_FULLCHAIN_FILE}")" '. * {data: {"tls.crt": $tlscert}}')
@@ -497,6 +500,11 @@ load_conf_from_secret() {
   fi
 
   rm -f "${RES_FILE}"
+
+  if [ -z $STATUS_CODE ]; then
+    info "Error checking for existing configuration. Exiting to avoid potentially overwriting existing valid certs"
+    exit 1
+  fi
 }
 
 add_conf_to_secret() {
