@@ -14,7 +14,7 @@ echo "" > "${report_file}"
 
 on_exit() {
   echo "Exiting..."
-  
+
   source "${current_folder}/after.sh"
 
   if [ "${ACME_DEBUG}" = "true" ]; then
@@ -91,7 +91,7 @@ k8s_api_call() {
     content_type="application/strategic-merge-patch+json"
   fi
   curl -i -X "${method}" --cacert "${CA_FILE}" -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' -H "Content-Type: ${content_type}" "https://${APISERVER}${uri}" ${args} -o "${res_file}"
-  
+
   cat "${res_file}" > /dev/stderr
   status_code=$(cat "${res_file}" | grep 'HTTP/' | awk '{printf $2}')
   add_to_report "$(cat "${res_file}")"
@@ -177,7 +177,7 @@ starter() {
     # use letsencrypt as default CA
     acme.sh --set-default-ca --server letsencrypt
   fi
-  
+
   parse_ingresses
 
   if [ "${ACME_GATEWAY_ENABLED}" = "true" ]; then
@@ -354,13 +354,13 @@ get_api_kind_elems() {
 
   res_file=$(mktemp /tmp/init_env.XXXX)
   status_code=$(k8s_api_call "GET" "${uri}" 2>"${res_file}")
-  
+
   if [ "${status_code}" != "200" ]; then
     info "Invalid status code found: ${status_code}"
   fi
-    
+
   format_res_file "${res_file}"
-  
+
   cat "${res_file}"
 }
 
@@ -368,7 +368,7 @@ get_secret_name_and_hostnames_from_ingress() {
   info "get_secret_name_and_hostnames_from_ingress"
 
   result=""
-  
+
   secret_names=""
   tls_inputs=$(echo "$1" | jq -c '.spec.tls | .[]')
   for input in ${tls_inputs}; do
@@ -389,7 +389,7 @@ get_secret_name_and_hostnames_from_ingress() {
     done
   done
 
-  for secret_name in ${secret_names}; do    
+  for secret_name in ${secret_names}; do
     if [ -z "${secret_name}" ]; then
       continue
     fi
@@ -411,15 +411,15 @@ get_secret_name_and_hostnames_from_httproute() {
   gateway_name=$(echo "$1" | jq -rc '.spec.parentRefs[0].name')
   secret_names=$(get_secretnames_from_gateway "${gateway_name}")
   hosts=$(echo "${1}" | jq -rc '.spec.hostnames | .[]' | tr '\n' ' ')
-  
+
   for host in ${hosts}; do
     if [ -z "${host}" ]; then
       continue
     fi
-    
+
     secret_name_found=""
     global_secret_name=""
-    
+
     for secret_name in ${secret_names}; do
       if [ -z "${secret_name}" ]; then
         continue
@@ -457,7 +457,7 @@ get_secret_name_and_hostnames_from_httproute() {
 
   for secret_name in ${secret_names}; do
     secret_name_val=$(echo "${secret_name}" | sed -r 's@:.*$@@')
-    
+
     if [ -z "${secret_name_val}" ]; then
       continue
     fi
@@ -525,7 +525,7 @@ generate_cert() {
   if [ "${ACME_DEBUG}" = "true" ]; then
     acme_args="${acme_args} --debug"
   fi
-  
+
   if [ "${CERTS_ARGS}" != "" ]; then
     acme_args="${acme_args} ${CERTS_ARGS}"
   fi
@@ -533,7 +533,7 @@ generate_cert() {
   if [ "${CERTS_IS_STAGING}" = "true" ]; then
     acme_args="${acme_args} --staging"
   fi
-  
+
   if [ "${CERTS_DNS}" != "" ]; then
     acme_args="${acme_args} --dns '${CERTS_DNS}'"
   fi
@@ -653,6 +653,9 @@ add_certs_to_secret() {
   secret_json=$(echo "${secret_json}" | jq --arg kind "Secret" '. + {kind: $kind}')
   secret_json=$(echo "${secret_json}" | jq --arg name "${CERTS_SECRET_NAME}" '. + {metadata: { name: $name }}')
   secret_json=$(echo "${secret_json}" | jq '. + {data: {}}')
+  secret_json=$(echo "${secret_json}" | jq '.metadata.annotations += {"reflector.v1.k8s.emberstack.com/reflection-allowed": "true"}')
+  secret_json=$(echo "${secret_json}" | jq '.metadata.annotations += {"reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces": ""}')
+  secret_json=$(echo "${secret_json}" | jq '.metadata.annotations += {"reflector.v1.k8s.emberstack.com/reflection-auto-enabled": "true"}')
   secret_json=$(echo "${secret_json}" | jq --arg cacert "$(get_file_data_for_secret_json "${ACME_CA_FILE}")" '. * {data: {"ca.crt": $cacert}}')
   secret_json=$(echo "${secret_json}" | jq --arg tlscert "$(get_file_data_for_secret_json "${ACME_FULLCHAIN_FILE}")" '. * {data: {"tls.crt": $tlscert}}')
   secret_json=$(echo "${secret_json}" | jq --arg tlskey "$(get_file_data_for_secret_json "${ACME_KEY_FILE}")" '. * {data: {"tls.key": $tlskey}}')
